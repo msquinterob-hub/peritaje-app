@@ -81,55 +81,64 @@ if api_key_openai:
     st.sidebar.success("🔑 OpenAI API cargada")
 
 # ==========================================
-# FUNCIONES DE SCRAPING Y EXTRACCIÓN EN CASCADA
+# FUNCIONES DE SCRAPING ROBUSTO Y EXTRACCIÓN
 # ==========================================
-def limpiar_url_mercadolibre(raw_url):
-    """Limpia anclas y parámetros pesados de la URL para evitar bloqueos"""
-    clean = raw_url.split("#")[0]
-    return clean
-
-def extraer_publicacion_y_fotos(url):
-    url_limpia = limpiar_url_mercadolibre(url)
+def extraer_publicacion_y_fotos(url_raw):
+    # 1. Limpieza estricta de URL y extracción de ID MCO si existe
+    url_limpia = url_raw.split("#")[0].split("?")[0]
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
     }
+
+    titulo = ""
+    precio = None
+    fotos_candidatas = []
+    placa_detectada = "N/A"
+
     try:
-        response = requests.get(url_limpia, headers=headers, timeout=15)
+        response = requests.get(url_limpia, headers=headers, timeout=12)
         if response.status_code != 200:
-            return None, None, [], "N/A", f"No se pudo acceder a la página (Código HTTP {response.status_code})."
+            return None, None, [], "N/A", f"Error HTTP {response.status_code} al consultar la página."
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
 
-        # 1. Título
-        titulo = ""
-        if soup.find("h1", class_="ui-pdp-title"):
-            titulo = soup.find("h1", class_="ui-pdp-title").get_text(strip=True)
-        elif soup.find("h1"):
-            titulo = soup.find("h1").get_text(strip=True)
-        elif soup.title:
-            titulo = soup.title.get_text(strip=True)
+        # --- EXTRACCIÓN DE TÍTULO ---
+        # A. Intentar por etiquetas meta OpenGraph
+        meta_title = soup.find("meta", property="og:title")
+        if meta_title and meta_title.get("content"):
+            titulo = meta_title.get("content").split("|")[0].strip()
+        
+        # B. Intentar por h1 o selectores PDP
+        if not titulo or titulo == "Mercado Libre":
+            h1 = soup.find("h1", class_="ui-pdp-title") or soup.find("h1")
+            if h1:
+                titulo = h1.get_text(strip=True)
 
-        # 2. Precio
-        precio = None
+        # C. Intentar extraer del slug de la URL si sigue genérico
+        if not titulo or "Mercado Libre" in titulo:
+            match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
+            if match_slug:
+                titulo = match_slug.group(1).replace("-", " ").title()
+
+        # --- EXTRACCIÓN DE PRECIO ---
         precio_span = soup.find("span", class_="andes-money-amount__fraction")
         if precio_span:
-            precio_texto = re.sub(r"[^\d]", "", precio_span.text.strip())
-            if precio_texto:
-                precio = int(precio_texto)
-        
+            p_clean = re.sub(r"[^\d]", "", precio_span.text.strip())
+            if p_clean:
+                precio = int(p_clean)
+
         if not precio:
-            precios_encontrados = re.findall(r"\$\s*(\d{1,3}(?:\.\d{3}){2,3}|\d{7,9})", html)
-            for p_raw in precios_encontrados:
+            precios_match = re.findall(r"\$\s*(\d{1,3}(?:\.\d{3}){2,3}|\d{7,9})", html)
+            for p_raw in precios_match:
                 val = int(p_raw.replace(".", ""))
                 if val >= 5000000:
                     precio = val
                     break
 
-        # 3. Placa en el texto del anuncio
-        placa_detectada = "N/A"
+        # --- EXTRACCIÓN DE PLACA EN TEXTO ---
         patron_placa = r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b'
         texto_busqueda = titulo
         ficha_tech = soup.find("table", class_="andino-specs-table") or soup.find("div", class_="ui-pdp-description")
@@ -139,38 +148,27 @@ def extraer_publicacion_y_fotos(url):
         match_placa = re.search(patron_placa, texto_busqueda)
         if match_placa:
             cand = match_placa.group(1).upper().replace("-", "").replace(" ", "")
-            if not any(bad in cand for bad in ["BMW", "AUD", "CHEV", "RENA", "NISS", "COP"]):
+            if not any(bad in cand for bad in ["BMW", "AUD", "CHE", "REN", "NIS", "COP"]):
                 placa_detectada = cand
 
-        # 4. Extracción de Galería de Fotos (Imágenes de alta resolución)
-        ids_imagenes_unicos = []
-        fotos_candidatas = []
+        # --- EXTRACCIÓN ROBUSTA DE FOTOS (GALERÍA HD) ---
+        ids_unicos = []
         patron_ml = r'https://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
-        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
-
-        # Buscar IDs de MercadoLibre en todo el código HTML
         coincidencias = re.findall(patron_ml, html)
+
+        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
 
         for img_id in coincidencias:
             clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', img_id)
             clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
             if any(bad in clean_id.lower() for bad in palabras_basura):
                 continue
-            if clean_id not in ids_imagenes_unicos:
-                ids_imagenes_unicos.append(clean_id)
+            if clean_id not in ids_unicos:
+                ids_unicos.append(clean_id)
                 url_hd = f"https://http2.mlstatic.com/D_NQ_NP_{clean_id}-O.jpg"
-                if url_hd not in fotos_candidatas:
-                    fotos_candidatas.append(url_hd)
+                fotos_candidatas.append(url_hd)
 
-        # Respaldo con etiquetas img / og:image
-        if not fotos_candidatas:
-            for meta in soup.find_all("meta", property="og:image"):
-                src = meta.get("content")
-                if src and "mlstatic.com" in src:
-                    src_hd = re.sub(r"-[I|V|D|F]\.jpg", "-O.jpg", src)
-                    if src_hd not in fotos_candidatas:
-                        fotos_candidatas.append(src_hd)
-
+        # Muestra en abanico de hasta 5 fotos representativas
         fotos_representativas = []
         total_cand = len(fotos_candidatas)
         if total_cand <= 5:
@@ -185,7 +183,7 @@ def extraer_publicacion_y_fotos(url):
         return titulo, precio, fotos_representativas, placa_detectada, None
 
     except Exception as e:
-        return None, None, [], "N/A", f"Error al procesar la URL: {str(e)}"
+        return None, None, [], "N/A", f"Error al procesar la publicación: {str(e)}"
 
 # ==========================================
 # CÁLCULO DE SOAT Y TECNO
@@ -260,7 +258,7 @@ def analizar_con_ollama_local(imagenes_pil):
 
     payload = {
         "model": "llama3.2-vision",
-        "prompt": "Eres perito en vehículos en Colombia. 1. PLACA DETECTADA: [Identifica obligatoriamente la placa visible en las fotos en formato de 3 letras y 3 números, ej: HCZ515, o N/A]. 2. Exterior. 3. Interior. 4. Puntos Fuertes. 5. Puntos de Negociación. 6. Cálculo Estimado de Arreglos (COP).",
+        "prompt": "Eres perito en vehículos en Colombia. 1. PLACA DETECTADA: [Identifica la placa visible ej: HCZ515, o N/A]. 2. Exterior. 3. Interior. 4. Puntos Fuertes. 5. Puntos de Negociación. 6. Cálculo Estimado de Arreglos (COP).",
         "images": imgs_b64,
         "stream": False
     }
@@ -287,7 +285,7 @@ def analizar_con_openai(imagenes_pil, key_openai):
     
     content_payload = [{
         "type": "text",
-        "text": "Eres un perito experto en autos usados en Colombia.\n1. **PLACA DETECTADA:** Analiza detalladamente las fotos de las placas y escribe exactamente el código detectado (3 letras y 3 números, ej: HCZ515) o N/A si no se ve.\n2. **Exterior:** Estado de pintura.\n3. **Interior:** Estado general.\n4. **Puntos Fuertes:** Ventajas.\n5. **Puntos de Negociación:** Imperfecciones.\n6. **Cálculo Estimado de Arreglos (COP):** Número exacto en pesos (ej: 850000)."
+        "text": "Eres un perito experto en autos usados en Colombia.\n1. **PLACA DETECTADA:** Escribe exactamente la placa detectada (3 letras y 3 números, ej: HCZ515) o N/A.\n2. **Exterior:** Estado de pintura.\n3. **Interior:** Estado general.\n4. **Puntos Fuertes:** Ventajas.\n5. **Puntos de Negociación:** Imperfecciones.\n6. **Cálculo Estimado de Arreglos (COP):** Número exacto en pesos (ej: 850000)."
     }]
     
     for img in imagenes_pil[:5]:
@@ -320,7 +318,7 @@ def analizar_imagenes_con_ia(imagenes_pil, key_gemini, key_openai, activar_local
     
     prompt = """
     Eres perito experto en autos usados en Colombia. Analiza minuciosamente las imágenes adjuntas (hasta 5 fotos):
-    1. **PLACA DETECTADA:** Observa las placas físicas en la carrocería (delantera o trasera). Indica claramente la placa encontrada (3 letras y 3 números unidos, ej: HCZ515) o N/A si ninguna es visible.
+    1. **PLACA DETECTADA:** Indica claramente la placa encontrada (3 letras y 3 números, ej: HCZ515) o N/A si ninguna es visible.
     2. **Exterior:** Pintura y latonería.
     3. **Interior:** Tapicería y tablero.
     4. **Puntos Fuertes:** Ventajas.
@@ -398,12 +396,12 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     placa_extraida = "N/A"
 
     if url_input:
-        with st.spinner("Cargando y analizando fotos de la publicación..."):
+        with st.spinner("Extraiendo datos de la publicación y fotos principales..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
                 st.error(error)
             else:
-                txt_titulo = titulo_vehiculo if titulo_vehiculo else "Mercado Libre"
+                txt_titulo = titulo_vehiculo if titulo_vehiculo else "Vehículo Mercado Libre"
                 st.success(f"✅ **Vehículo identificado:** {txt_titulo}")
                 if precio_publicado:
                     st.info(f"💵 **Precio en la publicación:** {formato_cop(precio_publicado)} PESOS")
@@ -455,14 +453,15 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         
         imgs_pil_list = []
 
-        # Mostrar exactamente las 5 fotos principales en 5 columnas paralelas
+        # Renderizar automáticamente las 5 fotos principales en 5 columnas paralelas
         if fotos_encontradas:
+            st.subheader(f"📸 Fotos principales extraídas de la publicación ({len(fotos_encontradas)} fotos):")
             cols = st.columns(min(len(fotos_encontradas), 5))
             for j, img_url in enumerate(fotos_encontradas[:5]):
                 with cols[j]:
                     st.image(img_url, use_container_width=True, caption=f"Foto {j + 1}")
             
-            # Cargar imágenes a memoria PIL para la IA
+            # Cargar a memoria para enviar a la IA
             for url_f in fotos_encontradas[:5]:
                 try:
                     res_f = requests.get(url_f, timeout=8)
@@ -471,9 +470,10 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                 except Exception:
                     pass
 
-        # Carga opcional manual si no hay fotos o se quieren añadir más
+        st.markdown("---")
+        # Carga opcional desde celular por si se quieren sumar más fotos
         archivos_cargados = st.file_uploader(
-            "Cargar o tomar fotos desde el dispositivo (Opcional):", 
+            "Cargar o tomar fotos desde el celular (Opcional):", 
             type=["jpg", "jpeg", "png", "webp"], 
             accept_multiple_files=True
         )
@@ -499,7 +499,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                         costo_extraido = extraer_monto_arreglos_de_dictamen(resultado_ia)
                         st.session_state["costo_arreglos_estimado"] = costo_extraido
             else:
-                st.error("⚠️ Ingrese un enlace con fotos o cargue imágenes manualmente para iniciar el análisis.")
+                st.error("⚠️ Ingrese un enlace válido para extraer fotos o cargue imágenes manualmente.")
 
         st.markdown("---")
         st.subheader("📝 Dictamen del Peritaje (Editable / Manual)")
