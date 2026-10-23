@@ -85,12 +85,13 @@ if api_key_openai:
 # ==========================================
 def extraer_publicacion_y_fotos(url):
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Accept-Language": "es-ES,es;q=0.9"
     }
     try:
         response = requests.get(url, headers=headers, timeout=12)
         if response.status_code != 200:
-            return None, None, [], "N/A", "No se pudo acceder a la página del vehículo."
+            return None, None, [], "N/A", f"No se pudo acceder a la página (Código HTTP {response.status_code})."
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
@@ -135,12 +136,19 @@ def extraer_publicacion_y_fotos(url):
             if not any(bad in cand for bad in ["BMW", "AUD", "CHEV", "RENA", "NISS", "COP"]):
                 placa_detectada = cand
 
-        # 4. Fotos (Hasta 5 fotos)
+        # 4. Extracción Avanzada de Fotos (Búsqueda en HTML y Scripts internos de MercadoLibre/TuCarro)
         ids_imagenes_unicos = []
         fotos_candidatas = []
         patron_ml = r'https://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
+        
+        # Buscar en todo el HTML y bloques de script (JSON integrado)
         coincidencias = re.findall(patron_ml, html)
         palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
+
+        for script in soup.find_all("script"):
+            script_text = script.string
+            if script_text and ("pictures" in script_text or "mlstatic.com" in script_text):
+                coincidencias.extend(re.findall(patron_ml, script_text))
 
         for img_id in coincidencias:
             clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', img_id)
@@ -392,10 +400,10 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     placa_extraida = "N/A"
 
     if url_input:
-        with st.spinner("Seleccionando fotos representativas y extrayendo datos..."):
+        with st.spinner("Extrayendo datos y fotos principales de la publicación..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
-                st.error(error)
+                st.warning(f"⚠️ Nota de extracción: {error}. Puede cargar las fotos manualmente abajo.")
             else:
                 txt_titulo = titulo_vehiculo if titulo_vehiculo else "No especificado"
                 st.success(f"✅ **Vehículo identificado:** {txt_titulo}")
@@ -447,31 +455,15 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     with tab_ia:
         st.header("🤖 Inspección Visual y Registro de Peritaje")
         
-        # 📂 NUEVA OPCIÓN: CARGA DIRECTA DE FOTOS DESDE EL CELULAR (GALERÍA O CÁMARA)
-        st.subheader("📁 O cargue o tome fotos directamente desde su celular:")
-        archivos_cargados = st.file_uploader(
-            "Seleccione hasta 5 imágenes del vehículo:", 
-            type=["jpg", "jpeg", "png", "webp"], 
-            accept_multiple_files=True,
-            help="Ideal si el enlace web no permite descargar las fotos automáticamente."
-        )
-
         imgs_pil_list = []
 
-        if archivos_cargados:
-            st.success(f"✅ Se han cargado {len(archivos_cargados)} fotos desde su dispositivo.")
-            cols = st.columns(min(len(archivos_cargados), 5))
-            for j, archivo in enumerate(archivos_cargados[:5]):
-                img_subida = Image.open(archivo)
-                imgs_pil_list.append(img_subida)
-                with cols[j]:
-                    st.image(img_subida, use_container_width=True, caption=f"Foto Local {j + 1}")
-        elif fotos_encontradas:
-            st.subheader(f"Fotografías extraídas de la URL ({len(fotos_encontradas)} fotos):")
+        # Mostrar fotos extraídas automáticamente si el link funcionó
+        if fotos_encontradas:
+            st.subheader(f"📸 Fotos principales extraídas automáticamente de la URL ({len(fotos_encontradas)} fotos):")
             cols = st.columns(len(fotos_encontradas))
             for j, img_url in enumerate(fotos_encontradas):
                 with cols[j]:
-                    st.image(img_url, use_container_width=True, caption=f"Foto {j + 1}")
+                    st.image(img_url, use_container_width=True, caption=f"Foto URL {j + 1}")
             
             # Cargar imágenes desde URLs
             for url_f in fotos_encontradas:
@@ -481,6 +473,26 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                         imgs_pil_list.append(Image.open(BytesIO(res_f.content)))
                 except Exception:
                     pass
+
+        # Respaldo opcional: Carga manual desde el celular
+        st.markdown("---")
+        st.subheader("📁 O cargue o tome fotos adicionales desde su celular (Opcional):")
+        archivos_cargados = st.file_uploader(
+            "Seleccione imágenes del vehículo:", 
+            type=["jpg", "jpeg", "png", "webp"], 
+            accept_multiple_files=True,
+            help="Si el enlace no extrajo fotos automáticamente, puede subirlas aquí."
+        )
+
+        if archivos_cargados:
+            st.success(f"✅ Se han cargado {len(archivos_cargados)} fotos desde su dispositivo.")
+            cols_local = st.columns(min(len(archivos_cargados), 5))
+            for j, archivo in enumerate(archivos_cargados[:5]):
+                img_subida = Image.open(archivo)
+                if img_subida not in imgs_pil_list:
+                    imgs_pil_list.append(img_subida)
+                with cols_local[j]:
+                    st.image(img_subida, use_container_width=True, caption=f"Foto Local {j + 1}")
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔍 Iniciar Inspección por IA"):
@@ -497,7 +509,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                         costo_extraido = extraer_monto_arreglos_de_dictamen(resultado_ia)
                         st.session_state["costo_arreglos_estimado"] = costo_extraido
             else:
-                st.error("⚠️ No hay fotos disponibles. Por favor cargue imágenes desde su celular o ingrese un enlace válido.")
+                st.error("⚠️ No hay fotos disponibles. Ingrese un enlace con fotos o cargue imágenes desde su celular.")
 
         st.markdown("---")
         st.subheader("📝 Dictamen del Peritaje (Editable / Manual)")
