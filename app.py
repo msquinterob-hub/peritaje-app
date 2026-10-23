@@ -455,7 +455,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         
         imgs_pil_list = []
 
-        # Mostrar exactamente las 5 fotos principales en 5 columnas paralelas (como la versión original)
+        # Mostrar exactamente las 5 fotos principales en 5 columnas paralelas
         if fotos_encontradas:
             cols = st.columns(min(len(fotos_encontradas), 5))
             for j, img_url in enumerate(fotos_encontradas[:5]):
@@ -517,4 +517,202 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     with tab_docs:
         st.header("📄 Calculadora Financiera y Gastos de Traspaso")
 
-        col_f1, col_f
+        col_f1, col_f2 = st.columns(2)
+
+        with col_f1:
+            presupuesto_disponible = st.number_input("Tu Presupuesto Máximo Disponible (PESOS)", value=59000000, step=1000000, format="%d")
+            st.caption(f"Valor en texto: **{formato_cop(presupuesto_disponible)}**")
+            
+            pct_bajar_vender = st.slider("PORCENTAJE A BAJAR PARA VENDER (%)", min_value=1, max_value=15, value=4)
+
+        with col_f2:
+            venc_soat = st.date_input("Vencimiento SOAT", value=date.today())
+            venc_tecno = st.date_input("Vencimiento Tecnomecánica", value=date.today())
+
+        st.markdown("---")
+        st.subheader("🏛️ Estimación de Gastos de Traspaso (Normativa Colombia)")
+
+        col_traspaso1, col_traspaso2 = st.columns(2)
+        derechos_traspaso_base = 260400  
+
+        with col_traspaso1:
+            modalidad_traspaso = st.radio(
+                "Distribución de Derechos de Traspaso del Organismo de Tránsito:",
+                ["Pagar 50% Comprador / 50% Vendedor (Estándar)", "Pagar 100% Comprador"]
+            )
+            gasto_derechos_comprador = (derechos_traspaso_base / 2) if "50%" in modalidad_traspaso else derechos_traspaso_base
+
+        valor_inicial_vehiculo = float(precio_publicado_input) if 'precio_publicado_input' in locals() else 59000000
+        pct_bajar_decimal = pct_bajar_vender / 100.0
+
+        with col_traspaso2:
+            incluir_retefuente = st.checkbox("Asumir la Retención en la Fuente del 1% (Legalmente a cargo del Vendedor)", value=False)
+            val_reventa_preliminar = valor_inicial_vehiculo * (1.0 - pct_bajar_decimal)
+            monto_retefuente = (val_reventa_preliminar * 0.01) if incluir_retefuente else 0
+
+        costo_traspaso_auto = int(gasto_derechos_comprador + monto_retefuente)
+
+        st.markdown("---")
+        st.subheader("📋 Cuadro Integrado de Costos Fijos y Variables (Fórmulas formula3.xlsx)")
+
+        soat_sugerido_web, tecno_sugerido_web = calcular_costos_documentos_por_vehiculo(titulo_vehiculo if 'titulo_vehiculo' in locals() else "")
+
+        hoy = date.today()
+        soat_vencido_flag = venc_soat < hoy
+        tecno_vencido_flag = venc_tecno < hoy
+
+        costo_soat = 0
+        costo_tecno = 0
+
+        valor_arreglos_inicial = st.session_state.get("costo_arreglos_estimado", 800000)
+
+        col_c1, col_c2 = st.columns(2)
+        with col_c1:
+            costo_peritaje = st.number_input("COSTO PERITAJE (PESOS)", value=180000, step=20000, format="%d")
+            st.caption(f"Valor en texto: **{formato_cop(costo_peritaje)}**")
+        with col_c2:
+            costo_arreglos = st.number_input(
+                "COSTOS ARREGLOS (IA / Taller) (PESOS)", 
+                value=int(valor_arreglos_inicial), 
+                step=50000, 
+                format="%d"
+            )
+            st.caption(f"Valor en texto: **{formato_cop(costo_arreglos)}**")
+
+        col_d1, col_d2 = st.columns(2)
+        with col_d1:
+            if soat_vencido_flag:
+                costo_soat = st.number_input("COSTO DE SOAT (Vencido - Según Vehículo)", value=int(soat_sugerido_web), step=50000, format="%d")
+                st.caption(f"Valor en texto: **{formato_cop(costo_soat)}**")
+            else:
+                st.markdown("✅ **SOAT Vigente** (Costo: $0)")
+                costo_soat = 0
+
+        with col_d2:
+            if tecno_vencido_flag:
+                costo_tecno = st.number_input("COSTO TECNO (Vencida - Trámite CDA)", value=int(tecno_sugerido_web), step=50000, format="%d")
+                st.caption(f"Valor en texto: **{formato_cop(costo_tecno)}**")
+            else:
+                st.markdown("✅ **Tecnomecánica Vigente** (Costo: $0)")
+                costo_tecno = 0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        costo_traspaso_input = st.number_input(
+            "costo TRASPASO (Editable según Opciones)", 
+            value=int(costo_traspaso_auto), 
+            step=10000, 
+            format="%d"
+        )
+        st.caption(f"Valor en texto: **{formato_cop(costo_traspaso_input)}**")
+
+        utilidad_esperada = st.number_input("UTILIDAD ESPERADA (PESOS)", value=3000000, step=500000, format="%d")
+        st.caption(f"Valor en texto: **{formato_cop(utilidad_esperada)}**")
+
+        # FÓRMULAS EXACTAS DE formula3.xlsx
+        valor_reventa_rapida = valor_inicial_vehiculo - (valor_inicial_vehiculo * pct_bajar_decimal)
+        
+        valor_oferta = (
+            valor_reventa_rapida 
+            - costo_soat 
+            - costo_tecno 
+            - costo_traspaso_input 
+            - costo_arreglos 
+            - utilidad_esperada 
+            - costo_peritaje
+        )
+
+        diferencia_pub_oferta = valor_inicial_vehiculo - valor_oferta
+        porcentaje_utilidad = (utilidad_esperada / valor_oferta) if valor_oferta > 0 else 0
+        porcentaje_precio_final_ofertado = (diferencia_pub_oferta / valor_inicial_vehiculo) if valor_inicial_vehiculo > 0 else 0
+
+        st.markdown("---")
+        st.subheader("🎯 Resultado de Oferta Sugerida (Fórmulas formula3.xlsx)")
+
+        res_c1, res_c2, res_c3, res_c4, res_c5 = st.columns(5)
+        with res_c1:
+            st.metric(label="VALOR REVENTA RÁPIDA", value=f"{formato_cop(valor_reventa_rapida)} PESOS")
+        with res_c2:
+            st.metric(label="VALOR OFERTA", value=f"{formato_cop(valor_oferta)} PESOS")
+            if valor_oferta > presupuesto_disponible:
+                st.warning("⚠️ La oferta supera tu presupuesto disponible.")
+            else:
+                st.success("✅ Oferta dentro de tu presupuesto.")
+        with res_c3:
+            st.metric(label="DIFERENCIA PUB. Y OFERTA", value=f"{formato_cop(diferencia_pub_oferta)} PESOS")
+        with res_c4:
+            st.metric(label="PORCENTAJE UTILIDAD", value=f"{porcentaje_utilidad * 100:.2f}%")
+        with res_c5:
+            st.metric(label="% PRECIO FINAL OFERTADO", value=f"{porcentaje_precio_final_ofertado * 100:.2f}%")
+
+    # TAB 4: ENLACES LEGALES
+    with tab_legales:
+        st.header("⚖️ Verificación de Antecedentes y Trámites Legales")
+        
+        val_placa_state = st.session_state.get("placa_actual", "N/A")
+        
+        col_pl1, col_pl2 = st.columns([1, 2])
+        with col_pl1:
+            placa_consulta = st.text_input(
+                "🚘 Placa del Vehículo (Lectura por IA / Editable):", 
+                value=val_placa_state,
+                placeholder="Ej: HHZ127 o N/A",
+                max_chars=7
+            )
+            st.session_state["placa_actual"] = placa_consulta.upper().strip()
+
+        with col_pl2:
+            if placa_consulta and placa_consulta.upper() != "N/A":
+                placa_clean = placa_consulta.upper().strip()
+                st.markdown("**📋 Haz clic en el botón flotante en la esquina del recuadro para copiar la placa:**")
+                st.code(placa_clean, language=None)
+            else:
+                st.warning("⚠️ La placa no fue indicada en el texto de la publicación. Presiona '🔍 Iniciar Inspección por IA' en la pestaña de fotos para que la IA la lea directamente de la foto o digítala manualmente.")
+
+        st.markdown("---")
+        st.markdown("""
+        * 📋 **[RUNT - Consulta de Histórico Vehicular](https://www.runt.gov.co/actores/ciudadano/consulta-historico-vehicular):** **(CONSULTA CLAVE)** Informe detallado con historial de propietarios, embargos, prendas y licencias.
+        * 💥 **[FASECOLDA - Historial de Accidentes](https://www.fasecolda.com/ramos/automoviles/historial-de-accidentes-de-vehiculos-asegurados/):** **(CONSULTA OBLIGATORIA)** Historial de siniestros y reclamaciones por pérdida parcial o total.
+        * 🚦 **[SIMIT - Portal Oficial FCM](https://www.fcm.org.co/simit/#/home-public):** Consulta nacional de comparendos e infracciones de tránsito.
+        * 🏛️ **[Movilidad Bogotá - Web Fénix](https://webfenix.movilidadbogota.gov.co/#/consulta-pagos):** Consulta específica de comparendos en Bogotá.
+        """)
+
+# =====================================================================
+# MÓDULO 2: VENTA
+# =====================================================================
+elif modulo_seleccionado == "🏷️ Módulo VENTA":
+    st.title("🏷️ Módulo de VENTA - Estrategia Comercial y Publicación")
+    st.info("📌 Estrategia comercial y precio objetivo de venta.")
+    
+    col_v1, col_v2 = st.columns(2)
+    with col_v1:
+        st.subheader("📋 Datos de Publicación")
+        st.text_input("Título de la Publicación de Venta")
+        val_compra_v = st.number_input("Precio de Compra Real (COP)", value=55000000, step=1000000, format="%d")
+        st.caption(f"Valor in texto: **{formato_cop(val_compra_v)}**")
+        val_rep_v = st.number_input("Inversión Real en Reparaciones/Adecuaciones (COP)", value=1500000, step=100000, format="%d")
+        st.caption(f"Valor in texto: **{formato_cop(val_rep_v)}**")
+    with col_v2:
+        st.subheader("🎯 Definición de Precio de Venta")
+        val_obj_v = st.number_input("Precio Objetivo de Venta (COP)", value=63000000, step=1000000, format="%d")
+        st.caption(f"Valor in texto: **{formato_cop(val_obj_v)}**")
+        val_com_v = st.number_input("Comisión o Gastos de Publicación (COP)", value=300000, step=50000, format="%d")
+        st.caption(f"Valor in texto: **{formato_cop(val_com_v)}**")
+
+# =====================================================================
+# MÓDULO 3: CONTRATO
+# =====================================================================
+elif modulo_seleccionado == "📜 Módulo CONTRATO":
+    st.title("📜 Módulo de CONTRATO - Generador Legal de Compraventa")
+    
+    placa_para_contrato = st.session_state.get("placa_actual", "N/A")
+
+    col_k1, col_k2 = st.columns(2)
+    with col_k1:
+        st.subheader("👤 Datos del Vendedor")
+        st.text_input("Nombre Completo Vendedor")
+        st.text_input("Cédula / NIT Vendedor")
+    with col_k2:
+        st.subheader("🚘 Datos del Vehículo y Transacción")
+        placa_contrato_input = st.text_input("Placa del Vehículo", value=placa_para_contrato, placeholder="Ej: HCZ515")
+        val_acordado_k = st.number_input("Valor Acordado de Compraventa (COP)", value=58000000, step=1000000, format="%d")
+        st.caption(f"Valor in texto: **{formato_cop(val_acordado_k)}**")
