@@ -59,26 +59,16 @@ if not GENAI_INSTALADO:
     st.sidebar.error("⚠️ Falta la librería oficial. Ejecuta en terminal: `pip install google-genai`")
 
 api_key_gemini_guardada = os.getenv("GEMINI_API_KEY", "")
-api_key_openai_guardada = os.getenv("OPENAI_API_KEY", "")
 
 api_key = st.sidebar.text_input(
-    "Llave de API de Google Gemini", 
+    "Llave de API de Google Gemini (Gratuita)", 
     value=api_key_gemini_guardada,
     type="password", 
-    help="Principal (Google AI Studio)"
-)
-
-api_key_openai = st.sidebar.text_input(
-    "Llave de API de OpenAI (ChatGPT - Respaldo)", 
-    value=api_key_openai_guardada,
-    type="password", 
-    help="Opcional: Respaldo automático"
+    help="Principal (Google AI Studio - gemini-1.5-flash)"
 )
 
 if api_key:
     st.sidebar.success("🔑 Gemini API cargada")
-if api_key_openai:
-    st.sidebar.success("🔑 OpenAI API cargada")
 
 # ==========================================
 # MOTOR INTERNO ANTI-BLOQUEO (JINA AI + SCRAPING)
@@ -90,7 +80,6 @@ def extraer_publicacion_y_fotos(url_raw):
     fotos_representativas = []
     placa_detectada = "N/A"
 
-    # 1. MÉTODO INTELIGENTE: Proxy de extracción interna (Bypassea Cloudflare / Anti-Bots)
     try:
         jina_url = f"https://r.jina.ai/{url_limpia}"
         headers_jina = {"Accept": "application/json", "X-With-Generated-Alt": "true"}
@@ -99,7 +88,6 @@ def extraer_publicacion_y_fotos(url_raw):
         if res_jina.status_code == 200:
             content = res_jina.text
             
-            # Extraer Título (Cabecera principal markdown)
             for line in content.split("\n"):
                 if line.startswith("# "):
                     titulo = line.replace("# ", "").strip()
@@ -110,7 +98,6 @@ def extraer_publicacion_y_fotos(url_raw):
                 if match_slug:
                     titulo = match_slug.group(1).replace("-", " ").title()
 
-            # Extraer Precio
             precios_match = re.findall(r"\$\s*([\d\.,]+)", content)
             for p_raw in precios_match:
                 p_clean = re.sub(r"[^\d]", "", p_raw)
@@ -120,7 +107,6 @@ def extraer_publicacion_y_fotos(url_raw):
                         precio = val
                         break
 
-            # Extraer Fotos en Alta Resolución (IDs de MercadoLibre)
             ids_unicos = []
             patron_ml = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
             for match in re.findall(patron_ml, content):
@@ -146,7 +132,6 @@ def extraer_publicacion_y_fotos(url_raw):
                 for idx in indices:
                     fotos_representativas.append(fotos_candidatas[idx])
 
-            # Extraer Placa si está en el texto
             match_p = re.search(r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b', content)
             if match_p:
                 cand = match_p.group(1).upper().replace("-", "").replace(" ", "")
@@ -158,52 +143,7 @@ def extraer_publicacion_y_fotos(url_raw):
     except Exception:
         pass
 
-    # 2. MÉTODO DE RESPALDO TRADICIONAL
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
-    }
-    try:
-        response = requests.get(url_limpia, headers=headers, timeout=12)
-        if response.status_code != 200:
-            return None, None, [], "N/A", f"Error HTTP {response.status_code} al consultar la página."
-
-        html = response.text
-        soup = BeautifulSoup(html, "html.parser")
-
-        h1 = soup.find("h1", class_="ui-pdp-title") or soup.find("h1")
-        if h1:
-            titulo = h1.get_text(strip=True)
-
-        ids_unicos = []
-        patron_ml = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
-        for match in re.findall(patron_ml, html):
-            clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', match)
-            clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
-            if clean_id not in ids_unicos and len(clean_id) > 5:
-                ids_unicos.append(clean_id)
-
-        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
-        fotos_candidatas = []
-        for clean_id in ids_unicos:
-            if any(bad in clean_id.lower() for bad in palabras_basura):
-                continue
-            url_hd = f"https://http2.mlstatic.com/D_NQ_NP_{clean_id}-O.jpg"
-            if url_hd not in fotos_candidatas:
-                fotos_candidatas.append(url_hd)
-
-        total_cand = len(fotos_candidatas)
-        if total_cand <= 5:
-            fotos_representativas = fotos_candidatas
-        elif total_cand > 5:
-            indices = [0, int(total_cand * 0.25), int(total_cand * 0.50), int(total_cand * 0.75), total_cand - 1]
-            for idx in indices:
-                fotos_representativas.append(fotos_candidatas[idx])
-
-        return titulo, precio, fotos_representativas, placa_detectada, None
-
-    except Exception as e:
-        return None, None, [], "N/A", f"Error al procesar la publicación: {str(e)}"
+    return titulo, precio, fotos_representativas, placa_detectada, None
 
 # ==========================================
 # CÁLCULO DE SOAT Y TECNO
@@ -292,48 +232,7 @@ def analizar_con_ollama_local(imagenes_pil):
     except Exception as e:
         return None, f"Ollama Error: {str(e)}"
 
-def analizar_con_openai(imagenes_pil, key_openai):
-    import base64
-    clean_key = key_openai.strip()
-    if clean_key.startswith("k-"):
-        clean_key = "s" + clean_key
-
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {clean_key}"
-    }
-    
-    content_payload = [{
-        "type": "text",
-        "text": "Eres un perito experto en autos usados en Colombia.\n1. **PLACA DETECTADA:** Escribe exactamente la placa detectada (3 letras y 3 números, ej: HCZ515) o N/A.\n2. **Exterior:** Estado de pintura.\n3. **Interior:** Estado general.\n4. **Puntos Fuertes:** Ventajas.\n5. **Puntos de Negociación:** Imperfecciones.\n6. **Cálculo Estimado de Arreglos (COP):** Número exacto en pesos (ej: 850000)."
-    }]
-    
-    for img in imagenes_pil[:5]:
-        buffered = BytesIO()
-        img.save(buffered, format="JPEG", quality=75)
-        img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
-        content_payload.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{img_base64}"}
-        })
-
-    payload = {
-        "model": "gpt-4o-mini",
-        "messages": [{"role": "user", "content": content_payload}],
-        "max_tokens": 600
-    }
-
-    try:
-        response = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=payload, timeout=25)
-        if response.status_code == 200:
-            res_json = response.json()
-            return f"🤖 [Dictamen generado por ChatGPT / OpenAI de Respaldo]:\n\n" + res_json["choices"][0]["message"]["content"], None
-        else:
-            return None, f"OpenAI API HTTP {response.status_code}: {response.text}"
-    except Exception as e:
-        return None, f"OpenAI Error: {str(e)}"
-
-def analizar_imagenes_con_ia(imagenes_pil, key_gemini, key_openai, activar_local):
+def analizar_imagenes_con_ia(imagenes_pil, key_gemini, activar_local):
     imgs_optimizadas = [optimizar_imagen_para_ia(img) for img in imagenes_pil[:5]]
     
     prompt = """
@@ -370,31 +269,25 @@ def analizar_imagenes_con_ia(imagenes_pil, key_gemini, key_openai, activar_local
                     )
                 )
 
-            for intento in range(2):
+            # Reintentos automáticos en caso de saturación temporal (Error 503)
+            for intento in range(3):
                 try:
                     response = client.models.generate_content(
-                        model='gemini-3.8-flash', 
+                        model='gemini-1.5-flash', 
                         contents=partes_contenido
                     )
                     if response and response.text:
-                        return f"🤖 [Dictamen generado por Google Gemini (gemini-3.8-flash)]:\n\n" + response.text
+                        return f"🤖 [Dictamen generado por Google Gemini (gemini-1.5-flash)]:\n\n" + response.text
                 except Exception as e_mod:
                     err_msg = str(e_mod)
-                    if "503" in err_msg and intento == 0:
-                        time.sleep(2)
+                    if "503" in err_msg and intento < 2:
+                        time.sleep(3)
                         continue
-                    errores_proceso.append(f"Gemini (gemini-3.8-flash): {err_msg}")
+                    errores_proceso.append(f"Gemini (gemini-1.5-flash): {err_msg}")
                     break
 
         except Exception as e_genai:
             errores_proceso.append(f"Gemini Init Error: {str(e_genai)}")
-
-    if key_openai:
-        res_openai, err_openai = analizar_con_openai(imagenes_pil, key_openai)
-        if res_openai:
-            return f"⚠️ *Nota: Google Gemini estuvo inaccesible o saturado temporalmente. Se utilizó automáticamente OpenAI (ChatGPT) de respaldo.*\n\n" + res_openai
-        if err_openai:
-            errores_proceso.append(err_openai)
 
     txt_errores = " | ".join(errores_proceso) if errores_proceso else "No se pudo obtener respuesta de los modelos."
     st.error(f"❌ No se pudo completar la inspección. Detalle de los errores encontrados:\n\n{txt_errores}")
@@ -419,7 +312,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         with st.spinner("Extrayendo inteligentemente título, precio y fotos del enlace..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
-                st.error(error)
+                st.warning(f"⚠️ Nota: {error}")
             else:
                 txt_titulo = titulo_vehiculo if titulo_vehiculo else "Vehículo Mercado Libre"
                 st.success(f"✅ **Vehículo identificado:** {txt_titulo}")
@@ -473,7 +366,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         
         imgs_pil_list = []
 
-        # Renderizar automáticamente las 5 fotos principales en 5 columnas paralelas
         if fotos_encontradas:
             st.subheader(f"📸 Fotos principales extraídas del enlace ({len(fotos_encontradas)} fotos):")
             cols = st.columns(min(len(fotos_encontradas), 5))
@@ -481,7 +373,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                 with cols[j]:
                     st.image(img_url, use_container_width=True, caption=f"Foto {j + 1}")
             
-            # Cargar a memoria para enviar a la IA
             for url_f in fotos_encontradas[:5]:
                 try:
                     res_f = requests.get(url_f, timeout=8)
@@ -507,7 +398,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         if st.button("🔍 Iniciar Inspección por IA"):
             if imgs_pil_list:
                 with st.spinner("Generando dictamen pericial con Inteligencia Artificial..."):
-                    resultado_ia = analizar_imagenes_con_ia(imgs_pil_list, api_key, api_key_openai, usar_ia_local)
+                    resultado_ia = analizar_imagenes_con_ia(imgs_pil_list, api_key, usar_ia_local)
                     if resultado_ia:
                         st.session_state["dictamen_peritaje"] = resultado_ia
                         
