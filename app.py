@@ -207,18 +207,15 @@ def optimizar_imagen_para_ia(img_pil, max_size=(500, 500)):
     return img_copy
 
 def extraer_placa_de_dictamen(texto_dictamen):
-    """ Nivel 2 y 3: Extrae la placa directamente del dictamen generado por la IA de forma robusta """
     if not texto_dictamen:
         return None
     
-    # Buscar etiqueta explícita de placa
     match = re.search(r'(?:PLACA\s*DETECTADA|PLACA)\s*[:\*\_]*\s*\[?\s*([A-Za-z]{3}\s*-?\s*\d{3})\s*\]?', texto_dictamen, re.IGNORECASE)
     if match:
         cand = match.group(1).upper().replace("-", "").replace(" ", "")
         if cand != "N/A" and len(cand) == 6:
             return cand
     
-    # Búsqueda general en el texto del dictamen
     matches_gen = re.findall(r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b', texto_dictamen)
     for m in matches_gen:
         cand = m.upper().replace("-", "").replace(" ", "")
@@ -405,7 +402,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                 if precio_publicado:
                     st.info(f"💵 **Precio en la publicación:** {formato_cop(precio_publicado)} PESOS")
                 
-                # Asignación jerárquica Nivel 1 (Texto del anuncio)
                 if "url_anterior" not in st.session_state or st.session_state.get("url_anterior") != url_input:
                     if placa_extraida and placa_extraida != "N/A":
                         st.session_state["placa_actual"] = placa_extraida
@@ -451,41 +447,57 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     with tab_ia:
         st.header("🤖 Inspección Visual y Registro de Peritaje")
         
-        if fotos_encontradas:
-            st.subheader(f"Selección Representativa de Fotografías ({len(fotos_encontradas)} fotos seleccionadas):")
+        # 📂 NUEVA OPCIÓN: CARGA DIRECTA DE FOTOS DESDE EL CELULAR (GALERÍA O CÁMARA)
+        st.subheader("📁 O cargue o tome fotos directamente desde su celular:")
+        archivos_cargados = st.file_uploader(
+            "Seleccione hasta 5 imágenes del vehículo:", 
+            type=["jpg", "jpeg", "png", "webp"], 
+            accept_multiple_files=True,
+            help="Ideal si el enlace web no permite descargar las fotos automáticamente."
+        )
+
+        imgs_pil_list = []
+
+        if archivos_cargados:
+            st.success(f"✅ Se han cargado {len(archivos_cargados)} fotos desde su dispositivo.")
+            cols = st.columns(min(len(archivos_cargados), 5))
+            for j, archivo in enumerate(archivos_cargados[:5]):
+                img_subida = Image.open(archivo)
+                imgs_pil_list.append(img_subida)
+                with cols[j]:
+                    st.image(img_subida, use_container_width=True, caption=f"Foto Local {j + 1}")
+        elif fotos_encontradas:
+            st.subheader(f"Fotografías extraídas de la URL ({len(fotos_encontradas)} fotos):")
             cols = st.columns(len(fotos_encontradas))
             for j, img_url in enumerate(fotos_encontradas):
                 with cols[j]:
                     st.image(img_url, use_container_width=True, caption=f"Foto {j + 1}")
+            
+            # Cargar imágenes desde URLs
+            for url_f in fotos_encontradas:
+                try:
+                    res_f = requests.get(url_f, timeout=6)
+                    if res_f.status_code == 200:
+                        imgs_pil_list.append(Image.open(BytesIO(res_f.content)))
+                except Exception:
+                    pass
 
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button("🔍 Iniciar Inspección por IA"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🔍 Iniciar Inspección por IA"):
+            if imgs_pil_list:
                 with st.spinner(f"Inspeccionando fotos y extrayendo placa con IA..."):
-                    imgs_pil_list = []
-                    for url_f in fotos_encontradas:
-                        try:
-                            res_f = requests.get(url_f, timeout=6)
-                            if res_f.status_code == 200:
-                                imgs_pil_list.append(Image.open(BytesIO(res_f.content)))
-                        except Exception:
-                            pass
+                    resultado_ia = analizar_imagenes_con_ia(imgs_pil_list, api_key, api_key_openai, usar_ia_local)
+                    if resultado_ia:
+                        st.session_state["dictamen_peritaje"] = resultado_ia
+                        
+                        placa_detectada_ia = extraer_placa_de_dictamen(resultado_ia)
+                        if placa_detectada_ia and placa_detectada_ia != "N/A":
+                            st.session_state["placa_actual"] = placa_detectada_ia
 
-                    if imgs_pil_list:
-                        resultado_ia = analizar_imagenes_con_ia(imgs_pil_list, api_key, api_key_openai, usar_ia_local)
-                        if resultado_ia:
-                            st.session_state["dictamen_peritaje"] = resultado_ia
-                            
-                            # CASCADA NIVEL 2: Extraer placa del dictamen de la IA y actualizar sesión
-                            placa_detectada_ia = extraer_placa_de_dictamen(resultado_ia)
-                            if placa_detectada_ia and placa_detectada_ia != "N/A":
-                                st.session_state["placa_actual"] = placa_detectada_ia
-
-                            costo_extraido = extraer_monto_arreglos_de_dictamen(resultado_ia)
-                            st.session_state["costo_arreglos_estimado"] = costo_extraido
-                    else:
-                        st.error("No se pudieron descargar las fotos de la publicación.")
-        else:
-            st.write("No se detectaron fotos automáticamente de la URL pegada.")
+                        costo_extraido = extraer_monto_arreglos_de_dictamen(resultado_ia)
+                        st.session_state["costo_arreglos_estimado"] = costo_extraido
+            else:
+                st.error("⚠️ No hay fotos disponibles. Por favor cargue imágenes desde su celular o ingrese un enlace válido.")
 
         st.markdown("---")
         st.subheader("📝 Dictamen del Peritaje (Editable / Manual)")
@@ -641,7 +653,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
             placa_consulta = st.text_input(
                 "🚘 Placa del Vehículo (Lectura por IA / Editable):", 
                 value=val_placa_state,
-                placeholder="Ej: HCZ515 o N/A",
+                placeholder="Ej: HHZ127 o N/A",
                 max_chars=7
             )
             st.session_state["placa_actual"] = placa_consulta.upper().strip()
@@ -674,15 +686,15 @@ elif modulo_seleccionado == "🏷️ Módulo VENTA":
         st.subheader("📋 Datos de Publicación")
         st.text_input("Título de la Publicación de Venta")
         val_compra_v = st.number_input("Precio de Compra Real (COP)", value=55000000, step=1000000, format="%d")
-        st.caption(f"Valor en texto: **{formato_cop(val_compra_v)}**")
+        st.caption(f"Valor in texto: **{formato_cop(val_compra_v)}**")
         val_rep_v = st.number_input("Inversión Real en Reparaciones/Adecuaciones (COP)", value=1500000, step=100000, format="%d")
-        st.caption(f"Valor en texto: **{formato_cop(val_rep_v)}**")
+        st.caption(f"Valor in texto: **{formato_cop(val_rep_v)}**")
     with col_v2:
         st.subheader("🎯 Definición de Precio de Venta")
         val_obj_v = st.number_input("Precio Objetivo de Venta (COP)", value=63000000, step=1000000, format="%d")
-        st.caption(f"Valor en texto: **{formato_cop(val_obj_v)}**")
+        st.caption(f"Valor in texto: **{formato_cop(val_obj_v)}**")
         val_com_v = st.number_input("Comisión o Gastos de Publicación (COP)", value=300000, step=50000, format="%d")
-        st.caption(f"Valor en texto: **{formato_cop(val_com_v)}**")
+        st.caption(f"Valor in texto: **{formato_cop(val_com_v)}**")
 
 # =====================================================================
 # MÓDULO 3: CONTRATO
@@ -690,7 +702,6 @@ elif modulo_seleccionado == "🏷️ Módulo VENTA":
 elif modulo_seleccionado == "📜 Módulo CONTRATO":
     st.title("📜 Módulo de CONTRATO - Generador Legal de Compraventa")
     
-    # Lectura de la placa propagada desde el estado global de la sesión
     placa_para_contrato = st.session_state.get("placa_actual", "N/A")
 
     col_k1, col_k2 = st.columns(2)
@@ -702,4 +713,4 @@ elif modulo_seleccionado == "📜 Módulo CONTRATO":
         st.subheader("🚘 Datos del Vehículo y Transacción")
         placa_contrato_input = st.text_input("Placa del Vehículo", value=placa_para_contrato, placeholder="Ej: HCZ515")
         val_acordado_k = st.number_input("Valor Acordado de Compraventa (COP)", value=58000000, step=1000000, format="%d")
-        st.caption(f"Valor en texto: **{formato_cop(val_acordado_k)}**")
+        st.caption(f"Valor in texto: **{formato_cop(val_acordado_k)}**")
