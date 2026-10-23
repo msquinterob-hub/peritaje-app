@@ -84,10 +84,9 @@ if api_key_openai:
 # FUNCIONES DE SCRAPING ROBUSTO Y EXTRACCIÓN
 # ==========================================
 def extraer_publicacion_y_fotos(url_raw):
-    # 1. Limpieza estricta de URL y extracción de ID MCO si existe
     url_limpia = url_raw.split("#")[0].split("?")[0]
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
     }
@@ -98,7 +97,7 @@ def extraer_publicacion_y_fotos(url_raw):
     placa_detectada = "N/A"
 
     try:
-        response = requests.get(url_limpia, headers=headers, timeout=12)
+        response = requests.get(url_limpia, headers=headers, timeout=15)
         if response.status_code != 200:
             return None, None, [], "N/A", f"Error HTTP {response.status_code} al consultar la página."
 
@@ -106,18 +105,15 @@ def extraer_publicacion_y_fotos(url_raw):
         soup = BeautifulSoup(html, "html.parser")
 
         # --- EXTRACCIÓN DE TÍTULO ---
-        # A. Intentar por etiquetas meta OpenGraph
         meta_title = soup.find("meta", property="og:title")
         if meta_title and meta_title.get("content"):
             titulo = meta_title.get("content").split("|")[0].strip()
         
-        # B. Intentar por h1 o selectores PDP
         if not titulo or titulo == "Mercado Libre":
             h1 = soup.find("h1", class_="ui-pdp-title") or soup.find("h1")
             if h1:
                 titulo = h1.get_text(strip=True)
 
-        # C. Intentar extraer del slug de la URL si sigue genérico
         if not titulo or "Mercado Libre" in titulo:
             match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
             if match_slug:
@@ -129,7 +125,7 @@ def extraer_publicacion_y_fotos(url_raw):
             p_clean = re.sub(r"[^\d]", "", precio_span.text.strip())
             if p_clean:
                 precio = int(p_clean)
-
+        
         if not precio:
             precios_match = re.findall(r"\$\s*(\d{1,3}(?:\.\d{3}){2,3}|\d{7,9})", html)
             for p_raw in precios_match:
@@ -151,24 +147,50 @@ def extraer_publicacion_y_fotos(url_raw):
             if not any(bad in cand for bad in ["BMW", "AUD", "CHE", "REN", "NIS", "COP"]):
                 placa_detectada = cand
 
-        # --- EXTRACCIÓN ROBUSTA DE FOTOS (GALERÍA HD) ---
+        # --- EXTRACCIÓN ROBUSTA DE FOTOS (URLs + JSON IDs) ---
         ids_unicos = []
-        patron_ml = r'https://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
-        coincidencias = re.findall(patron_ml, html)
-
-        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
-
-        for img_id in coincidencias:
-            clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', img_id)
+        
+        # 1. Buscar URLs completas de mlstatic
+        patron_ml_url = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
+        for match in re.findall(patron_ml_url, html):
+            clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', match)
             clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
-            if any(bad in clean_id.lower() for bad in palabras_basura):
-                continue
             if clean_id not in ids_unicos:
                 ids_unicos.append(clean_id)
-                url_hd = f"https://http2.mlstatic.com/D_NQ_NP_{clean_id}-O.jpg"
+
+        # 2. Buscar IDs sueltos en estructuras JSON de scripts de MercadoLibre
+        patron_ml_id = r'D_NQ_NP_([0-9A-Za-z_-]+)'
+        for match in re.findall(patron_ml_id, html):
+            clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', match)
+            clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
+            if clean_id not in ids_unicos and len(clean_id) > 5:
+                ids_unicos.append(clean_id)
+
+        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion", "footer", "header"]
+
+        for clean_id in ids_unicos:
+            if any(bad in clean_id.lower() for bad in palabras_basura):
+                continue
+            url_hd = f"https://http2.mlstatic.com/D_NQ_NP_{clean_id}-O.jpg"
+            if url_hd not in fotos_candidatas:
                 fotos_candidatas.append(url_hd)
 
-        # Muestra en abanico de hasta 5 fotos representativas
+        # Respaldo OpenGraph / etiquetas img
+        if not fotos_candidatas:
+            for meta in soup.find_all("meta", property="og:image"):
+                src = meta.get("content")
+                if src and "mlstatic.com" in src:
+                    src_hd = re.sub(r"-[I|V|D|F]\.jpg", "-O.jpg", src)
+                    if src_hd not in fotos_candidatas:
+                        fotos_candidatas.append(src_hd)
+
+            for img in soup.find_all("img"):
+                src = img.get("data-zoom") or img.get("data-src") or img.get("src")
+                if src and "mlstatic.com" in src:
+                    src_hd = re.sub(r"-[I|V|D|F]\.jpg", "-O.jpg", src)
+                    if src_hd not in fotos_candidatas:
+                        fotos_candidatas.append(src_hd)
+
         fotos_representativas = []
         total_cand = len(fotos_candidatas)
         if total_cand <= 5:
@@ -396,7 +418,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     placa_extraida = "N/A"
 
     if url_input:
-        with st.spinner("Extraiendo datos de la publicación y fotos principales..."):
+        with st.spinner("Extrayendo datos de la publicación y fotos principales..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
                 st.error(error)
@@ -471,7 +493,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                     pass
 
         st.markdown("---")
-        # Carga opcional desde celular por si se quieren sumar más fotos
         archivos_cargados = st.file_uploader(
             "Cargar o tomar fotos desde el celular (Opcional):", 
             type=["jpg", "jpeg", "png", "webp"], 
