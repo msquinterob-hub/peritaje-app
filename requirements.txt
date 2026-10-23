@@ -1,0 +1,6 @@
+streamlit
+beautifulsoup4
+requests
+Pillow
+python-dotenv
+google-genai
