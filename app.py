@@ -81,7 +81,7 @@ if api_key_openai:
     st.sidebar.success("🔑 OpenAI API cargada")
 
 # ==========================================
-# MOTOR DE EXTRACCIÓN MEDIANTE API OFICIAL Y HTML
+# MOTOR INTERNO ANTI-BLOQUEO (JINA AI + SCRAPING)
 # ==========================================
 def extraer_publicacion_y_fotos(url_raw):
     url_limpia = url_raw.split("#")[0].split("?")[0]
@@ -90,44 +90,75 @@ def extraer_publicacion_y_fotos(url_raw):
     fotos_representativas = []
     placa_detectada = "N/A"
 
-    # 1. MÉTODO API OFICIAL DE MERCADOLIBRE (Más rápido, limpio e infalible)
-    match_id = re.search(r'(MCO-?\d+)', url_limpia, re.IGNORECASE)
-    if match_id:
-        item_id = match_id.group(1).upper().replace("-", "")
-        api_url = f"https://api.mercadolibre.com/items/{item_id}"
-        headers_api = {"User-Agent": "Mozilla/5.0"}
-        try:
-            res_api = requests.get(api_url, headers=headers_api, timeout=10)
-            if res_api.status_code == 200:
-                data = res_api.json()
-                titulo = data.get("title", "")
-                precio = data.get("price")
-                
-                # Extraer imágenes directas de la API
-                pictures = data.get("pictures", [])
-                urls_fotos = [p.get("secure_url") or p.get("url") for p in pictures if p.get("secure_url") or p.get("url")]
-                
-                total_pics = len(urls_fotos)
-                if total_pics <= 5:
-                    fotos_representativas = urls_fotos
-                elif total_pics > 5:
-                    indices = [0, int(total_pics * 0.25), int(total_pics * 0.50), int(total_pics * 0.75), total_pics - 1]
-                    for idx in indices:
-                        fotos_representativas.append(urls_fotos[idx])
+    # 1. MÉTODO INTELIGENTE: Proxy de extracción interna (Bypassea Cloudflare / Anti-Bots)
+    try:
+        jina_url = f"https://r.jina.ai/{url_limpia}"
+        headers_jina = {"Accept": "application/json", "X-With-Generated-Alt": "true"}
+        res_jina = requests.get(jina_url, headers=headers_jina, timeout=15)
+        
+        if res_jina.status_code == 200:
+            content = res_jina.text
+            
+            # Extraer Título (Cabecera principal markdown)
+            for line in content.split("\n"):
+                if line.startswith("# "):
+                    titulo = line.replace("# ", "").strip()
+                    break
+            
+            if not titulo or "Mercado Libre" in titulo:
+                match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
+                if match_slug:
+                    titulo = match_slug.group(1).replace("-", " ").title()
 
-                # Buscar placa en atributos o descripción si los hay
-                attributes = data.get("attributes", [])
-                for attr in attributes:
-                    val_name = str(attr.get("value_name", ""))
-                    match_p = re.search(r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b', val_name)
-                    if match_p:
-                        placa_detectada = match_p.group(1).upper().replace("-", "").replace(" ", "")
+            # Extraer Precio
+            precios_match = re.findall(r"\$\s*([\d\.,]+)", content)
+            for p_raw in precios_match:
+                p_clean = re.sub(r"[^\d]", "", p_raw)
+                if len(p_clean) >= 7:
+                    val = int(p_clean)
+                    if val >= 5000000:
+                        precio = val
+                        break
 
+            # Extraer Fotos en Alta Resolución (IDs de MercadoLibre)
+            ids_unicos = []
+            patron_ml = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
+            for match in re.findall(patron_ml, content):
+                clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', match)
+                clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
+                if clean_id not in ids_unicos and len(clean_id) > 5:
+                    ids_unicos.append(clean_id)
+
+            palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion", "footer", "header"]
+            fotos_candidatas = []
+            for clean_id in ids_unicos:
+                if any(bad in clean_id.lower() for bad in palabras_basura):
+                    continue
+                url_hd = f"https://http2.mlstatic.com/D_NQ_NP_{clean_id}-O.jpg"
+                if url_hd not in fotos_candidatas:
+                    fotos_candidatas.append(url_hd)
+
+            total_cand = len(fotos_candidatas)
+            if total_cand <= 5:
+                fotos_representativas = fotos_candidatas
+            elif total_cand > 5:
+                indices = [0, int(total_cand * 0.25), int(total_cand * 0.50), int(total_cand * 0.75), total_cand - 1]
+                for idx in indices:
+                    fotos_representativas.append(fotos_candidatas[idx])
+
+            # Extraer Placa si está en el texto
+            match_p = re.search(r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b', content)
+            if match_p:
+                cand = match_p.group(1).upper().replace("-", "").replace(" ", "")
+                if not any(bad in cand for bad in ["BMW", "AUD", "CHE", "REN", "NIS", "COP"]):
+                    placa_detectada = cand
+
+            if fotos_representativas:
                 return titulo, precio, fotos_representativas, placa_detectada, None
-        except Exception:
-            pass
+    except Exception:
+        pass
 
-    # 2. MÉTODO DE RESPALDO (SCRAPING HTML TRADICIONAL)
+    # 2. MÉTODO DE RESPALDO TRADICIONAL
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
@@ -140,24 +171,10 @@ def extraer_publicacion_y_fotos(url_raw):
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
 
-        # Título
         h1 = soup.find("h1", class_="ui-pdp-title") or soup.find("h1")
         if h1:
             titulo = h1.get_text(strip=True)
-        
-        if not titulo:
-            meta_title = soup.find("meta", property="og:title")
-            if meta_title:
-                titulo = meta_title.get("content", "").split("|")[0].strip()
 
-        # Precio
-        precio_span = soup.find("span", class_="andes-money-amount__fraction")
-        if precio_span:
-            p_clean = re.sub(r"[^\d]", "", precio_span.text.strip())
-            if p_clean:
-                precio = int(p_clean)
-
-        # Fotos por expresiones regulares
         ids_unicos = []
         patron_ml = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
         for match in re.findall(patron_ml, html):
@@ -166,7 +183,7 @@ def extraer_publicacion_y_fotos(url_raw):
             if clean_id not in ids_unicos and len(clean_id) > 5:
                 ids_unicos.append(clean_id)
 
-        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion", "footer", "header"]
+        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion"]
         fotos_candidatas = []
         for clean_id in ids_unicos:
             if any(bad in clean_id.lower() for bad in palabras_basura):
@@ -399,7 +416,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     placa_extraida = "N/A"
 
     if url_input:
-        with st.spinner("Consultando API oficial y extrayendo fotos principales..."):
+        with st.spinner("Extrayendo inteligentemente título, precio y fotos del enlace..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
                 st.error(error)
@@ -458,7 +475,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
         # Renderizar automáticamente las 5 fotos principales en 5 columnas paralelas
         if fotos_encontradas:
-            st.subheader(f"📸 Fotos principales extraídas de la publicación ({len(fotos_encontradas)} fotos):")
+            st.subheader(f"📸 Fotos principales extraídas del enlace ({len(fotos_encontradas)} fotos):")
             cols = st.columns(min(len(fotos_encontradas), 5))
             for j, img_url in enumerate(fotos_encontradas[:5]):
                 with cols[j]:
@@ -475,7 +492,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
         st.markdown("---")
         archivos_cargados = st.file_uploader(
-            "Cargar o tomar fotos desde el celular (Opcional):", 
+            "Cargar o tomar fotos desde el celular (Opcional - Respaldo):", 
             type=["jpg", "jpeg", "png", "webp"], 
             accept_multiple_files=True
         )
