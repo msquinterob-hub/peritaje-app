@@ -64,7 +64,7 @@ api_key = st.sidebar.text_input(
     "Llave de API de Google Gemini (Gratuita)", 
     value=api_key_gemini_guardada,
     type="password", 
-    help="Principal (Google AI Studio - gemini-2.0-flash)"
+    help="Principal (Google AI Studio - gemini-3.8-flash)"
 )
 
 if api_key:
@@ -273,17 +273,17 @@ def analizar_imagenes_con_ia(imagenes_pil, key_gemini, activar_local):
             for intento in range(3):
                 try:
                     response = client.models.generate_content(
-                        model='gemini-2.0-flash', 
+                        model='gemini-3.8-flash', 
                         contents=partes_contenido
                     )
                     if response and response.text:
-                        return f"🤖 [Dictamen generado por Google Gemini (gemini-2.0-flash)]:\n\n" + response.text
+                        return f"🤖 [Dictamen generado por Google Gemini (gemini-3.8-flash)]:\n\n" + response.text
                 except Exception as e_mod:
                     err_msg = str(e_mod)
                     if "503" in err_msg and intento < 2:
                         time.sleep(3)
                         continue
-                    errores_proceso.append(f"Gemini (gemini-2.0-flash): {err_msg}")
+                    errores_proceso.append(f"Gemini (gemini-3.8-flash): {err_msg}")
                     break
 
         except Exception as e_genai:
@@ -421,7 +421,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
             value=dictamen_defecto, 
             height=200
         )
-        st.info("💡 Este dictamen te sirve de soporte para la negociación con el vendedor.")
+        st.info("💡 هذا Dictamen te sirve de soporte para la negociación con el vendedor.")
 
     # TAB 3: CALCULADORA
     with tab_docs:
