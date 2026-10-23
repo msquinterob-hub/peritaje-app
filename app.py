@@ -81,89 +81,93 @@ if api_key_openai:
     st.sidebar.success("🔑 OpenAI API cargada")
 
 # ==========================================
-# FUNCIONES DE SCRAPING ROBUSTO Y EXTRACCIÓN
+# MOTOR DE EXTRACCIÓN MEDIANTE API OFICIAL Y HTML
 # ==========================================
 def extraer_publicacion_y_fotos(url_raw):
     url_limpia = url_raw.split("#")[0].split("?")[0]
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
-    }
-
     titulo = ""
     precio = None
-    fotos_candidatas = []
+    fotos_representativas = []
     placa_detectada = "N/A"
 
+    # 1. MÉTODO API OFICIAL DE MERCADOLIBRE (Más rápido, limpio e infalible)
+    match_id = re.search(r'(MCO-?\d+)', url_limpia, re.IGNORECASE)
+    if match_id:
+        item_id = match_id.group(1).upper().replace("-", "")
+        api_url = f"https://api.mercadolibre.com/items/{item_id}"
+        headers_api = {"User-Agent": "Mozilla/5.0"}
+        try:
+            res_api = requests.get(api_url, headers=headers_api, timeout=10)
+            if res_api.status_code == 200:
+                data = res_api.json()
+                titulo = data.get("title", "")
+                precio = data.get("price")
+                
+                # Extraer imágenes directas de la API
+                pictures = data.get("pictures", [])
+                urls_fotos = [p.get("secure_url") or p.get("url") for p in pictures if p.get("secure_url") or p.get("url")]
+                
+                total_pics = len(urls_fotos)
+                if total_pics <= 5:
+                    fotos_representativas = urls_fotos
+                elif total_pics > 5:
+                    indices = [0, int(total_pics * 0.25), int(total_pics * 0.50), int(total_pics * 0.75), total_pics - 1]
+                    for idx in indices:
+                        fotos_representativas.append(urls_fotos[idx])
+
+                # Buscar placa en atributos o descripción si los hay
+                attributes = data.get("attributes", [])
+                for attr in attributes:
+                    val_name = str(attr.get("value_name", ""))
+                    match_p = re.search(r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b', val_name)
+                    if match_p:
+                        placa_detectada = match_p.group(1).upper().replace("-", "").replace(" ", "")
+
+                return titulo, precio, fotos_representativas, placa_detectada, None
+        except Exception:
+            pass
+
+    # 2. MÉTODO DE RESPALDO (SCRAPING HTML TRADICIONAL)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Accept-Language": "es-CO,es-419;q=0.9,es;q=0.8"
+    }
     try:
-        response = requests.get(url_limpia, headers=headers, timeout=15)
+        response = requests.get(url_limpia, headers=headers, timeout=12)
         if response.status_code != 200:
             return None, None, [], "N/A", f"Error HTTP {response.status_code} al consultar la página."
 
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
 
-        # --- EXTRACCIÓN DE TÍTULO ---
+        # Título
         h1 = soup.find("h1", class_="ui-pdp-title") or soup.find("h1")
         if h1:
             titulo = h1.get_text(strip=True)
         
         if not titulo:
             meta_title = soup.find("meta", property="og:title")
-            if meta_title and meta_title.get("content"):
-                titulo = meta_title.get("content").split("|")[0].strip()
+            if meta_title:
+                titulo = meta_title.get("content", "").split("|")[0].strip()
 
-        if not titulo or "Mercado Libre" in titulo:
-            match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
-            if match_slug:
-                titulo = match_slug.group(1).replace("-", " ").title()
-
-        # --- EXTRACCIÓN DE PRECIO ---
+        # Precio
         precio_span = soup.find("span", class_="andes-money-amount__fraction")
         if precio_span:
             p_clean = re.sub(r"[^\d]", "", precio_span.text.strip())
             if p_clean:
                 precio = int(p_clean)
-        
-        if not precio:
-            precios_match = re.findall(r"\$\s*(\d{1,3}(?:\.\d{3}){2,3}|\d{7,9})", html)
-            for p_raw in precios_match:
-                val = int(p_raw.replace(".", ""))
-                if val >= 5000000:
-                    precio = val
-                    break
 
-        # --- EXTRACCIÓN DE PLACA EN TEXTO ---
-        patron_placa = r'\b([A-Za-z]{3}\s*-?\s*\d{3})\b'
-        texto_busqueda = titulo
-        ficha_tech = soup.find("table", class_="andino-specs-table") or soup.find("div", class_="ui-pdp-description")
-        if ficha_tech:
-            texto_busqueda += " " + ficha_tech.get_text()
-
-        match_placa = re.search(patron_placa, texto_busqueda)
-        if match_placa:
-            cand = match_placa.group(1).upper().replace("-", "").replace(" ", "")
-            if not any(bad in cand for bad in ["BMW", "AUD", "CHE", "REN", "NIS", "COP"]):
-                placa_detectada = cand
-
-        # --- EXTRACCIÓN FILTRADA DE FOTOS (Excluyendo logotipos institucionales) ---
+        # Fotos por expresiones regulares
         ids_unicos = []
-        
-        # Buscar en la galería específica del producto
-        galeria = soup.find("div", class_="ui-pdp-gallery") or soup.find("div", class_="ui-pdp-container")
-        html_busqueda = str(galeria) if galeria else html
-
-        patron_ml_url = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
-        for match in re.findall(patron_ml_url, html_busqueda):
+        patron_ml = r'https?://http2\.mlstatic\.com/D_NQ_NP_([0-9A-Za-z_-]+)\.(?:jpg|jpeg|png|webp)'
+        for match in re.findall(patron_ml, html):
             clean_id = re.sub(r'^(?:2X_|3X_|\d+X_)', '', match)
             clean_id = re.sub(r'-[OIVFDS]$', '', clean_id)
-            if clean_id not in ids_unicos:
+            if clean_id not in ids_unicos and len(clean_id) > 5:
                 ids_unicos.append(clean_id)
 
-        # Palabras prohibidas para evitar logotipos institucionales o banners
-        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion", "footer", "header", "home"]
-
+        palabras_basura = ["meli", "logo", "banner", "icon", "cashback", "garantia", "credito", "publicidad", "financiacion", "footer", "header"]
+        fotos_candidatas = []
         for clean_id in ids_unicos:
             if any(bad in clean_id.lower() for bad in palabras_basura):
                 continue
@@ -171,16 +175,13 @@ def extraer_publicacion_y_fotos(url_raw):
             if url_hd not in fotos_candidatas:
                 fotos_candidatas.append(url_hd)
 
-        fotos_representativas = []
         total_cand = len(fotos_candidatas)
         if total_cand <= 5:
             fotos_representativas = fotos_candidatas
-        else:
+        elif total_cand > 5:
             indices = [0, int(total_cand * 0.25), int(total_cand * 0.50), int(total_cand * 0.75), total_cand - 1]
             for idx in indices:
-                url_sel = fotos_candidatas[idx]
-                if url_sel not in fotos_representativas:
-                    fotos_representativas.append(url_sel)
+                fotos_representativas.append(fotos_candidatas[idx])
 
         return titulo, precio, fotos_representativas, placa_detectada, None
 
@@ -398,7 +399,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
     placa_extraida = "N/A"
 
     if url_input:
-        with st.spinner("Extraendo datos de la publicación y fotos principales..."):
+        with st.spinner("Consultando API oficial y extrayendo fotos principales..."):
             titulo_vehiculo, precio_publicado, fotos_encontradas, placa_extraida, error = extraer_publicacion_y_fotos(url_input)
             if error:
                 st.error(error)
