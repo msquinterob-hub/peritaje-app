@@ -31,9 +31,11 @@ st.set_page_config(
     layout="wide"
 )
 
-# Inicializar estado de sesión para la placa de manera global
+# Inicializar estado de sesión para la placa y el título de manera global
 if "placa_actual" not in st.session_state:
     st.session_state["placa_actual"] = "N/A"
+if "titulo_vehiculo_global" not in st.session_state:
+    st.session_state["titulo_vehiculo_global"] = ""
 
 # Función auxiliar para dar formato de pesos colombianos con separador de miles (.)
 def formato_cop(valor):
@@ -268,6 +270,38 @@ def calcular_costos_documentos_por_vehiculo(titulo_vehiculo):
     return soat_estimado, tecno_estimada
 
 # ==========================================
+# FUNCIÓN DE VALIDACIÓN DE VIABILIDAD CON LA LISTA DE ROTACIÓN
+# ==========================================
+def verificar_viabilidad_vehiculo(nombre_vehiculo):
+    if not nombre_vehiculo:
+        return "⚠️ Sin nombre de vehículo detectado para evaluar.", "Desconocido"
+    
+    nombre_lower = nombre_vehiculo.lower()
+    
+    for item in CARROS_ALTA_ROTACION:
+        modelo_base = item["Línea / Modelo"].lower()
+        marca_base = item["Marca"].lower()
+        
+        # Palabras clave principales (ej: picanto, onix, duster, sandero, etc.)
+        palabras_modelo = [p for p in re.findall(r'\b\w+\b', modelo_base) if len(p) > 3]
+        
+        coincide_marca = marca_base in nombre_lower
+        coincide_modelo = any(p in nombre_lower for p in palabras_modelo)
+        
+        if coincide_marca or coincide_modelo:
+            return (
+                f"✅ **VIABLE / ALTA ROTACIÓN:** El vehículo coincide con nuestro listado estratégico (**{item['Marca']} {item['Línea / Modelo']}**). "
+                f"Tiene un nivel de riesgo **{item['Nivel de Riesgo']}** y una rotación estimada de **{item['Días Promedio Rotación']}**.",
+                "Alto"
+            )
+            
+    return (
+        "⚠️ **PRECAUCIÓN / MENOR ROTACIÓN:** Este modelo no está en la lista principal de alta rotación de la aplicación. "
+        "Verifica muy bien su demanda comercial local antes de comprarlo para asegurar la liquidez del capital.",
+        "Moderado"
+    )
+
+# ==========================================
 # EXTRACCIÓN INTELIGENTE EN CASCADA PARA PLACA Y ARREGLOS
 # ==========================================
 def optimizar_imagen_para_ia(img_pil, max_size=(500, 500)):
@@ -422,6 +456,8 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
             else:
                 txt_titulo = titulo_vehiculo if titulo_vehiculo else "Vehículo Mercado Libre"
                 st.success(f"✅ **Vehículo identificado:** {txt_titulo}")
+                st.session_state["titulo_vehiculo_global"] = txt_titulo
+                
                 if precio_publicado:
                     st.info(f"💵 **Precio en la publicación:** {formato_cop(precio_publicado)} PESOS")
                 
@@ -440,10 +476,28 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         "⚖️ Enlaces Legales Oficiales"
     ])
 
-    # TAB 1: ANÁLISIS COMERCIAL
+    # TAB 1: ANÁLISIS COMERCIAL CON COMPARACIÓN DE VIABILIDAD
     with tab_comercial:
-        st.header("📈 Análisis Comercial, Oferta y Demanda en el Mercado")
-        st.markdown("Evalúa la competitividad del vehículo analizado frente a la oferta actual y la demanda real en Colombia.")
+        st.header("📈 Análisis Comercial, Viabilidad y Demanda")
+        st.markdown("Evaluación automática del vehículo frente al listado de alta rotación y su competitividad en precio.")
+
+        # Campo editable para el nombre del vehículo por si no se cargó por enlace
+        titulo_editable = st.text_input(
+            "🚘 Nombre o Modelo del Vehículo Analizado:", 
+            value=st.session_state.get("titulo_vehiculo_global", "Chevrolet Onix Turbo LTZ"),
+            help="Puedes editar el nombre del vehículo para afinar la validación con la guía de rotación."
+        )
+        st.session_state["titulo_vehiculo_global"] = titulo_editable
+
+        # EJECUTAR COMPARACIÓN DE VIABILIDAD
+        mensaje_viabilidad, nivel_viabilidad = verificar_viabilidad_vehiculo(titulo_editable)
+        
+        if nivel_viabilidad == "Alto":
+            st.success(mensaje_viabilidad)
+        else:
+            st.warning(mensaje_viabilidad)
+
+        st.markdown("---")
 
         col_m1, col_m2 = st.columns(2)
         val_inicial = precio_publicado if precio_publicado else 59000000
@@ -468,11 +522,11 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
             
             st.markdown("---")
             if diferencia > 0:
-                st.error(f"⚠️ **DEMANDA BAJA / SOBREPRECIO:** Este vehículo está **{formato_cop(diferencia)} por encima** del promedio. Hay mucha oferta similar más barata, por lo que tardará más tiempo en venderse a menos que negocies una rebaja fuerte.")
+                st.error(f"⚠️ **DEMANDA BAJA / SOBREPRECIO:** Este vehículo está **{formato_cop(diferencia)} por encima** del promedio de mercado. Hay competencia más económica.")
             else:
-                st.success(f"🚀 **ALTA DEMANDA / OPORTUNIDAD:** Este vehículo está **{formato_cop(abs(diferencia))} por debajo** del promedio. Su rotación estimada en el mercado será rápida (menor a 15 días) debido a la alta demanda.")
+                st.success(f"🚀 **ALTA DEMANDA / OPORTUNIDAD:** Este vehículo está **{formato_cop(abs(diferencia))} por debajo** del promedio. Excelente oportunidad de negocio.")
 
-            st.info("💡 **Índice de Liquidez:** Vehículos en este rango de precio rotan comercialmente entre **10 a 20 días** si se encuentran en colores comerciales (Blanco, Gris, Negro).")
+            st.info("💡 **Índice de Liquidez:** Los vehículos viables en este segmento rotan comercialmente entre **10 a 20 días**.")
 
     # TAB 2: GUÍA DE ROTACIÓN
     with tab_ranking:
@@ -690,7 +744,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
             unsafe_allow_html=True
         )
 
-        # Panel de métricas complementarias (6 Columnas)
         res_c1, res_c2, res_c3, res_c4, res_c5, res_c6 = st.columns(6)
         with res_c1:
             st.metric(label="VALOR PUBLICADO", value=f"{formato_cop(valor_inicial_vehiculo)} PESOS")
