@@ -180,7 +180,7 @@ if api_key:
     st.sidebar.success("🔑 Gemini API cargada")
 
 # ==========================================
-# MOTOR INTERNO ANTI-BLOQUEO (JINA AI + SCRAPING)
+# MOTOR INTERNO ANTI-BLOQUEO (EXTRACCIÓN INTELIGENTE DE URL)
 # ==========================================
 def extraer_publicacion_y_fotos(url_raw):
     url_limpia = url_raw.split("#")[0].split("?")[0]
@@ -189,23 +189,28 @@ def extraer_publicacion_y_fotos(url_raw):
     fotos_representativas = []
     placa_detectada = "N/A"
 
+    # Extracción directa del nombre/modelo desde la estructura del enlace (Slug de Mercado Libre / TuCarro)
+    match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
+    if match_slug:
+        slug_texto = match_slug.group(1).replace("-", " ").title()
+        if len(slug_texto) > 3:
+            titulo = slug_texto
+
     try:
         jina_url = f"https://r.jina.ai/{url_limpia}"
         headers_jina = {"Accept": "application/json", "X-With-Generated-Alt": "true"}
-        res_jina = requests.get(jina_url, headers=headers_jina, timeout=15)
+        res_jina = requests.get(jina_url, headers=headers_jina, timeout=12)
         
         if res_jina.status_code == 200:
             content = res_jina.text
             
+            # Buscar título alternativo si el slug no trajo suficiente detalle
             for line in content.split("\n"):
-                if line.startswith("# "):
-                    titulo = line.replace("# ", "").strip()
-                    break
-            
-            if not titulo or "Mercado Libre" in titulo:
-                match_slug = re.search(r'/MCO-\d+-(.*?)(?:-JM)?$', url_limpia)
-                if match_slug:
-                    titulo = match_slug.group(1).replace("-", " ").title()
+                if line.startswith("# ") and "Mercado Libre" not in line:
+                    candidato_t = line.replace("# ", "").strip()
+                    if len(candidato_t) > 5:
+                        titulo = candidato_t
+                        break
 
             precios_match = re.findall(r"\$\s*([\d\.,]+)", content)
             for p_raw in precios_match:
@@ -246,11 +251,11 @@ def extraer_publicacion_y_fotos(url_raw):
                 cand = match_p.group(1).upper().replace("-", "").replace(" ", "")
                 if not any(bad in cand for bad in ["BMW", "AUD", "CHE", "REN", "NIS", "COP"]):
                     placa_detectada = cand
-
-            if fotos_representativas:
-                return titulo, precio, fotos_representativas, placa_detectada, None
     except Exception:
         pass
+
+    if not titulo:
+        titulo = "Vehículo Usado en Colombia"
 
     return titulo, precio, fotos_representativas, placa_detectada, None
 
@@ -282,7 +287,6 @@ def verificar_viabilidad_vehiculo(nombre_vehiculo):
         modelo_base = item["Línea / Modelo"].lower()
         marca_base = item["Marca"].lower()
         
-        # Palabras clave principales (ej: picanto, onix, duster, sandero, etc.)
         palabras_modelo = [p for p in re.findall(r'\b\w+\b', modelo_base) if len(p) > 3]
         
         coincide_marca = marca_base in nombre_lower
@@ -481,7 +485,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         st.header("📈 Análisis Comercial, Viabilidad y Demanda")
         st.markdown("Evaluación automática del vehículo frente al listado de alta rotación y su competitividad en precio.")
 
-        # Campo editable para el nombre del vehículo por si no se cargó por enlace
         titulo_editable = st.text_input(
             "🚘 Nombre o Modelo del Vehículo Analizado:", 
             value=st.session_state.get("titulo_vehiculo_global", "Chevrolet Onix Turbo LTZ"),
@@ -489,7 +492,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         )
         st.session_state["titulo_vehiculo_global"] = titulo_editable
 
-        # EJECUTAR COMPARACIÓN DE VIABILIDAD
         mensaje_viabilidad, nivel_viabilidad = verificar_viabilidad_vehiculo(titulo_editable)
         
         if nivel_viabilidad == "Alto":
@@ -813,7 +815,7 @@ elif modulo_seleccionado == "🏷️ Módulo VENTA":
         st.caption(f"Valor in texto: **{formato_cop(val_com_v)}**")
 
 # =====================================================================
-# MÓDULO 3: CONTRATO
+# Módulo 3: CONTRATO
 # =====================================================================
 elif modulo_seleccionado == "📜 Módulo CONTRATO":
     st.title("📜 Módulo de CONTRATO - Generador Legal de Compraventa")
