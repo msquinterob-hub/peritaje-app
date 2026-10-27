@@ -535,7 +535,6 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔍 Iniciar Inspección por IA"):
-            # Verificación flexible: permite usar fotos extraídas o fotos subidas manualmente
             if not api_key and not usar_ia_local:
                 st.error("⚠️ Por favor ingresa tu Llave de API de Google Gemini en la barra lateral o activa la IA local.")
             elif imgs_pil_list:
@@ -680,20 +679,23 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         st.markdown("---")
         st.subheader("🎯 Resultado de Oferta Sugerida (Fórmulas formula3.xlsx)")
 
-        res_c1, res_c2, res_c3, res_c4, res_c5 = st.columns(5)
+        # 6 Columnas organizadas para incluir el VALOR PUBLICADO
+        res_c1, res_c2, res_c3, res_c4, res_c5, res_c6 = st.columns(6)
         with res_c1:
-            st.metric(label="VALOR REVENTA RÁPIDA", value=f"{formato_cop(valor_reventa_rapida)} PESOS")
+            st.metric(label="VALOR PUBLICADO", value=f"{formato_cop(valor_inicial_vehiculo)} PESOS")
         with res_c2:
+            st.metric(label="VALOR REVENTA RÁPIDA", value=f"{formato_cop(valor_reventa_rapida)} PESOS")
+        with res_c3:
             st.metric(label="VALOR OFERTA", value=f"{formato_cop(valor_oferta)} PESOS")
             if valor_oferta > presupuesto_disponible:
-                st.warning("⚠️ La oferta supera tu presupuesto disponible.")
+                st.warning("⚠️ Supera presupuesto.")
             else:
-                st.success("✅ Oferta dentro de tu presupuesto.")
-        with res_c3:
-            st.metric(label="DIFERENCIA PUB. Y OFERTA", value=f"{formato_cop(diferencia_pub_oferta)} PESOS")
+                st.success("✅ En presupuesto.")
         with res_c4:
-            st.metric(label="PORCENTAJE UTILIDAD", value=f"{porcentaje_utilidad * 100:.2f}%")
+            st.metric(label="DIFERENCIA PUB. Y OFERTA", value=f"{formato_cop(diferencia_pub_oferta)} PESOS")
         with res_c5:
+            st.metric(label="PORCENTAJE UTILIDAD", value=f"{porcentaje_utilidad * 100:.2f}%")
+        with res_c6:
             st.metric(label="% PRECIO FINAL OFERTADO", value=f"{porcentaje_precio_final_ofertado * 100:.2f}%")
 
     # TAB 5: ENLACES LEGALES
