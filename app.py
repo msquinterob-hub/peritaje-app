@@ -440,7 +440,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         "⚖️ Enlaces Legales Oficiales"
     ])
 
-    # TAB 1: ANÁLISIS COMERCIAL (OFERTA Y DEMANDA)
+    # TAB 1: ANÁLISIS COMERCIAL
     with tab_comercial:
         st.header("📈 Análisis Comercial, Oferta y Demanda en el Mercado")
         st.markdown("Evalúa la competitividad del vehículo analizado frente a la oferta actual y la demanda real en Colombia.")
@@ -466,14 +466,12 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
             diferencia = precio_publicado_input - precio_promedio_mercado
             
-            # Indicador detallado de oferta y demanda
             st.markdown("---")
             if diferencia > 0:
                 st.error(f"⚠️ **DEMANDA BAJA / SOBREPRECIO:** Este vehículo está **{formato_cop(diferencia)} por encima** del promedio. Hay mucha oferta similar más barata, por lo que tardará más tiempo en venderse a menos que negocies una rebaja fuerte.")
             else:
                 st.success(f"🚀 **ALTA DEMANDA / OPORTUNIDAD:** Este vehículo está **{formato_cop(abs(diferencia))} por debajo** del promedio. Su rotación estimada en el mercado será rápida (menor a 15 días) debido a la alta demanda.")
 
-            # Indicador de liquidez estimado
             st.info("💡 **Índice de Liquidez:** Vehículos en este rango de precio rotan comercialmente entre **10 a 20 días** si se encuentran en colores comerciales (Blanco, Gris, Negro).")
 
     # TAB 2: GUÍA DE ROTACIÓN
@@ -537,7 +535,10 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("🔍 Iniciar Inspección por IA"):
-            if imgs_pil_list:
+            # Verificación flexible: permite usar fotos extraídas o fotos subidas manualmente
+            if not api_key and not usar_ia_local:
+                st.error("⚠️ Por favor ingresa tu Llave de API de Google Gemini en la barra lateral o activa la IA local.")
+            elif imgs_pil_list:
                 with st.spinner("Generando dictamen pericial con Inteligencia Artificial..."):
                     resultado_ia = analizar_imagenes_con_ia(imgs_pil_list, api_key, usar_ia_local)
                     if resultado_ia:
@@ -550,7 +551,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
                         costo_extraido = extraer_monto_arreglos_de_dictamen(resultado_ia)
                         st.session_state["costo_arreglos_estimado"] = costo_extraido
             else:
-                st.error("⚠️ Ingrese un enlace válido para extraer fotos o cargue imágenes manualmente.")
+                st.error("⚠️ No hay fotos disponibles. El enlace no pudo extraer imágenes o debes cargar al menos una foto manualmente usando el botón 'Upload' de arriba.")
 
         st.markdown("---")
         st.subheader("📝 Dictamen del Peritaje (Editable / Manual)")
