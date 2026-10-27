@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from PIL import Image
 from io import BytesIO
 import streamlit as st
+import pandas as pd
 from datetime import date
 
 # Intento seguro de cargar dotenv
@@ -42,6 +43,112 @@ def formato_cop(valor):
         return "$ 0"
 
 # ==========================================
+# BASE DE DATOS INFORMATIVA DE VEHÍCULOS ALTA ROTACIÓN
+# ==========================================
+CARROS_ALTA_ROTACION = [
+    {
+        "Marca": "Kia",
+        "Línea / Modelo": "Picanto (All New / ION)",
+        "Rango de Años": "2015 - 2023",
+        "Rango Precio Estimado (COP)": "$32M - $55M",
+        "Días Promedio Rotación": "7 - 15 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Primer carro, plataformas, uso diario",
+        "Versión Recomendada": "Vibrant / Zenith (1.25L)"
+    },
+    {
+        "Marca": "Chevrolet",
+        "Línea / Modelo": "Onix / Joy",
+        "Rango de Años": "2017 - 2023",
+        "Rango Precio Estimado (COP)": "$38M - $62M",
+        "Días Promedio Rotación": "10 - 18 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Jóvenes, ejecutivos, familias pequeñas",
+        "Versión Recomendada": "LTZ / Premier / Joy 1.4"
+    },
+    {
+        "Marca": "Renault",
+        "Línea / Modelo": "Sandero / Stepway",
+        "Rango de Años": "2016 - 2022",
+        "Rango Precio Estimado (COP)": "$35M - $58M",
+        "Días Promedio Rotación": "10 - 20 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Familias, viajes, todo propósito",
+        "Versión Recomendada": "Dynamique / Intens / Expression 1.6"
+    },
+    {
+        "Marca": "Renault",
+        "Línea / Modelo": "Logan",
+        "Rango de Años": "2016 - 2022",
+        "Rango Precio Estimado (COP)": "$33M - $52M",
+        "Días Promedio Rotación": "12 - 20 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Trabajo, plataformas, familias",
+        "Versión Recomendada": "Life / Intens 1.6 16v"
+    },
+    {
+        "Marca": "Renault",
+        "Línea / Modelo": "Duster",
+        "Rango de Años": "2015 - 2022",
+        "Rango Precio Estimado (COP)": "$48M - $75M",
+        "Días Promedio Rotación": "10 - 15 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Familias, terreno destapado, viajes",
+        "Versión Recomendada": "Dynamique 2.0 4x4 / 1.3 Turbo"
+    },
+    {
+        "Marca": "Chevrolet",
+        "Línea / Modelo": "Tracker",
+        "Rango de Años": "2016 - 2022",
+        "Rango Precio Estimado (COP)": "$48M - $78M",
+        "Días Promedio Rotación": "15 - 25 días",
+        "Nivel de Riesgo": "🟡 Bajo",
+        "Público Objetivo": "Familias urbanas, mujeres, viajes",
+        "Versión Recomendada": "LTZ / LS Turbo"
+    },
+    {
+        "Marca": "Suzuki",
+        "Línea / Modelo": "Swift",
+        "Rango de Años": "2018 - 2023",
+        "Rango Precio Estimado (COP)": "$42M - $65M",
+        "Días Promedio Rotación": "12 - 20 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Universitarios, ahorradores de gasolina",
+        "Versión Recomendada": "1.2 Dualjet / Hybrid"
+    },
+    {
+        "Marca": "Mazda",
+        "Línea / Modelo": "Mazda 2",
+        "Rango de Años": "2016 - 2022",
+        "Rango Precio Estimado (COP)": "$48M - $70M",
+        "Días Promedio Rotación": "15 - 22 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Jóvenes, profesionales",
+        "Versión Recomendada": "Grand Touring / Touring"
+    },
+    {
+        "Marca": "Renault",
+        "Línea / Modelo": "Kwid",
+        "Rango de Años": "2019 - 2023",
+        "Rango Precio Estimado (COP)": "$30M - $43M",
+        "Días Promedio Rotación": "10 - 18 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Primer auto, ciudad",
+        "Versión Recomendada": "Outsider / Zen"
+    },
+    {
+        "Marca": "Nissan",
+        "Línea / Modelo": "March",
+        "Rango de Años": "2015 - 2021",
+        "Rango Precio Estimado (COP)": "$32M - $48M",
+        "Días Promedio Rotación": "12 - 20 días",
+        "Nivel de Riesgo": "🟢 Muy Bajo",
+        "Público Objetivo": "Uso diario, excelente fuerza",
+        "Versión Recomendada": "Sense / Connect 1.6"
+    }
+]
+
+# ==========================================
 # CONFIGURACIÓN DE BARRA LATERAL
 # ==========================================
 st.sidebar.title("🎛️ Menú Principal")
@@ -64,7 +171,7 @@ api_key = st.sidebar.text_input(
     "Llave de API de Google Gemini (Gratuita)", 
     value=api_key_gemini_guardada,
     type="password", 
-    help="Principal (Google AI Studio - gemini-1.5-flash)"
+    help="Principal (Google AI Studio - gemini-3.8-flash)"
 )
 
 if api_key:
@@ -269,21 +376,20 @@ def analizar_imagenes_con_ia(imagenes_pil, key_gemini, activar_local):
                     )
                 )
 
-            # Reintentos automáticos en caso de saturación temporal (Error 503)
             for intento in range(3):
                 try:
                     response = client.models.generate_content(
-                        model='gemini-1.5-flash', 
+                        model='gemini-3.8-flash', 
                         contents=partes_contenido
                     )
                     if response and response.text:
-                        return f"🤖 [Dictamen generado por Google Gemini (gemini-1.5-flash)]:\n\n" + response.text
+                        return f"🤖 [Dictamen generado por Google Gemini (gemini-3.8-flash)]:\n\n" + response.text
                 except Exception as e_mod:
                     err_msg = str(e_mod)
                     if "503" in err_msg and intento < 2:
                         time.sleep(3)
                         continue
-                    errores_proceso.append(f"Gemini (gemini-1.5-flash): {err_msg}")
+                    errores_proceso.append(f"Gemini (gemini-3.8-flash): {err_msg}")
                     break
 
         except Exception as e_genai:
@@ -326,41 +432,76 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
 
     st.markdown("---")
 
-    tab_comercial, tab_ia, tab_docs, tab_legales = st.tabs([
+    tab_comercial, tab_ranking, tab_ia, tab_docs, tab_legales = st.tabs([
         "📈 Análisis Comercial de Mercado",
+        "⭐ Guía de Carros de Mayor Rotación",
         "👁️ Inspección de Fotos (IA / Manual)",
         "📄 Documentos y Calculadora de Oferta",
         "⚖️ Enlaces Legales Oficiales"
     ])
 
-    # TAB 1: ANÁLISIS COMERCIAL
+    # TAB 1: ANÁLISIS COMERCIAL (OFERTA Y DEMANDA)
     with tab_comercial:
-        st.header("📈 Análisis Comercial y Estimación de Reventa")
+        st.header("📈 Análisis Comercial, Oferta y Demanda en el Mercado")
+        st.markdown("Evalúa la competitividad del vehículo analizado frente a la oferta actual y la demanda real en Colombia.")
 
         col_m1, col_m2 = st.columns(2)
         val_inicial = precio_publicado if precio_publicado else 59000000
 
         with col_m1:
+            st.subheader("💰 Parámetros de Precio")
             precio_publicado_input = st.number_input("Precio de la Publicación Analizada (PESOS)", value=int(val_inicial), step=1000000, format="%d")
             st.caption(f"Valor en texto: **{formato_cop(precio_publicado_input)}**")
             
-            ref_min = st.number_input("Precio Mínimo de Mercado para este modelo (PESOS)", value=int(val_inicial * 0.9), step=1000000, format="%d")
+            ref_min = st.number_input("Precio Mínimo de Mercado (Piso)", value=int(val_inicial * 0.9), step=1000000, format="%d")
             st.caption(f"Valor en texto: **{formato_cop(ref_min)}**")
             
-            ref_max = st.number_input("Precio Máximo de Mercado para este modelo (PESOS)", value=int(val_inicial * 1.1), step=1000000, format="%d")
+            ref_max = st.number_input("Precio Máximo de Mercado (Techo)", value=int(val_inicial * 1.1), step=1000000, format="%d")
             st.caption(f"Valor en texto: **{formato_cop(ref_max)}**")
 
         with col_m2:
+            st.subheader("📊 Diagnóstico de Oferta y Demanda")
             precio_promedio_mercado = (ref_min + ref_max) / 2
             st.metric(label="📊 Precio Promedio de Mercado", value=f"{formato_cop(precio_promedio_mercado)} PESOS")
 
             diferencia = precio_publicado_input - precio_promedio_mercado
+            
+            # Indicador detallado de oferta y demanda
+            st.markdown("---")
             if diferencia > 0:
-                st.warning(f"⚠️ La publicación está **{formato_cop(diferencia)} PESOS por encima** del precio promedio de mercado.")
+                st.error(f"⚠️ **DEMANDA BAJA / SOBREPRECIO:** Este vehículo está **{formato_cop(diferencia)} por encima** del promedio. Hay mucha oferta similar más barata, por lo que tardará más tiempo en venderse a menos que negocies una rebaja fuerte.")
             else:
-                st.success(f"🎉 La publicación está **{formato_cop(abs(diferencia))} PESOS por debajo** del precio promedio de mercado (Posible Oportunidad).")
+                st.success(f"🚀 **ALTA DEMANDA / OPORTUNIDAD:** Este vehículo está **{formato_cop(abs(diferencia))} por debajo** del promedio. Su rotación estimada en el mercado será rápida (menor a 15 días) debido a la alta demanda.")
 
-    # TAB 2: INSPECCIÓN IA
+            # Indicador de liquidez estimado
+            st.info("💡 **Índice de Liquidez:** Vehículos en este rango de precio rotan comercialmente entre **10 a 20 días** si se encuentran en colores comerciales (Blanco, Gris, Negro).")
+
+    # TAB 2: GUÍA DE ROTACIÓN
+    with tab_ranking:
+        st.header("⭐ Listado Estratégico de Vehículos de Alta Rotación (Menor Riesgo)")
+        st.caption("Esta guía interactiva te ayuda a identificar cuáles vehículos comprar para vender rápido y asegurar liquidez constante.")
+
+        df_rotacion = pd.DataFrame(CARROS_ALTA_ROTACION)
+
+        marcas_disponibles = ["Todas"] + list(df_rotacion["Marca"].unique())
+        marca_filtrada = st.selectbox("🔍 Filtrar por Marca:", marcas_disponibles)
+
+        if marca_filtrada != "Todas":
+            df_mostrar = df_rotacion[df_rotacion["Marca"] == marca_filtrada]
+        else:
+            df_mostrar = df_rotacion
+
+        st.dataframe(df_mostrar, use_container_width=True, hide_index=True)
+
+        st.markdown("""
+        ---
+        ### 💡 Reglas de Oro para Compra y Venta de Alta Rotación en Colombia:
+        1. **Colores Comerciales:** Prefiere siempre **Blanco, Gris Plata, Gris Plomo y Negro**. Los colores exóticos (Rojo, Amarillo) tardan hasta el doble de tiempo en venderse.
+        2. **Caja Mecánica vs. Automática:** En citycars (Picanto, Onix, Kwid), la caja mecánica se vende muy rápido a jóvenes o conductores de app; la caja automática se vende a mejor precio.
+        3. **Límite de Kilometraje:** Procura adquirir vehículos con menos de **15.000 km por año de uso**.
+        """)
+
+    # TAB 3: INSPECCIÓN IA
     with tab_ia:
         st.header("👁️ Inspección Visual y Registro de Peritaje")
         
@@ -423,7 +564,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         )
         st.info("💡 Este dictamen te sirve de soporte para la negociación con el vendedor.")
 
-    # TAB 3: CALCULADORA
+    # TAB 4: CALCULADORA
     with tab_docs:
         st.header("📄 Calculadora Financiera y Gastos de Traspaso")
 
@@ -554,7 +695,7 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         with res_c5:
             st.metric(label="% PRECIO FINAL OFERTADO", value=f"{porcentaje_precio_final_ofertado * 100:.2f}%")
 
-    # TAB 4: ENLACES LEGALES
+    # TAB 5: ENLACES LEGALES
     with tab_legales:
         st.header("⚖️ Verificación de Antecedentes y Trámites Legales")
         
