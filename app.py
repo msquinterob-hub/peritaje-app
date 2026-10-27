@@ -679,18 +679,25 @@ if modulo_seleccionado == "🚗 Módulo COMPRA (Peritaje & Oferta)":
         st.markdown("---")
         st.subheader("🎯 Resultado de Oferta Sugerida (Fórmulas formula3.xlsx)")
 
-        # 6 Columnas organizadas para incluir el VALOR PUBLICADO
+        # TARJETA DESTACADA LLAMATIVA PARA EL VALOR OFERTA
+        st.markdown(
+            f"""
+            <div style="background: linear-gradient(135deg, #1f4068, #162447); padding: 20px; border-radius: 12px; border: 2px solid #e43f5a; text-align: center; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(228, 63, 90, 0.3);">
+                <h4 style="color: #e43f5a; margin: 0; font-size: 16px; text-transform: uppercase; letter-spacing: 1px;">🔥 VALOR OFERTA RECOMENDADO 🔥</h4>
+                <h1 style="color: #ffffff; margin: 10px 0 0 0; font-size: 38px; font-weight: bold;">{formato_cop(valor_oferta)} PESOS</h1>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # Panel de métricas complementarias (6 Columnas)
         res_c1, res_c2, res_c3, res_c4, res_c5, res_c6 = st.columns(6)
         with res_c1:
             st.metric(label="VALOR PUBLICADO", value=f"{formato_cop(valor_inicial_vehiculo)} PESOS")
         with res_c2:
             st.metric(label="VALOR REVENTA RÁPIDA", value=f"{formato_cop(valor_reventa_rapida)} PESOS")
         with res_c3:
-            st.metric(label="VALOR OFERTA", value=f"{formato_cop(valor_oferta)} PESOS")
-            if valor_oferta > presupuesto_disponible:
-                st.warning("⚠️ Supera presupuesto.")
-            else:
-                st.success("✅ En presupuesto.")
+            st.metric(label="ESTADO PRESUPUESTO", value="✅ En Rango" if valor_oferta <= presupuesto_disponible else "⚠️ Excede")
         with res_c4:
             st.metric(label="DIFERENCIA PUB. Y OFERTA", value=f"{formato_cop(diferencia_pub_oferta)} PESOS")
         with res_c5:
